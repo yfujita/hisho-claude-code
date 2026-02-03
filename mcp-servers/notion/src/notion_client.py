@@ -25,7 +25,14 @@ from .exceptions import (
     TimeoutError,
 )
 from .logger import get_request_logger
-from .models import NotionDatabaseQueryResponse, NotionPage, Task, TaskPriority, TaskStatus
+from .models import (
+    Memo,
+    NotionDatabaseQueryResponse,
+    NotionPage,
+    Task,
+    TaskPriority,
+    TaskStatus,
+)
 from .rate_limiter import RateLimiter
 
 logger = logging.getLogger(__name__)
@@ -428,6 +435,18 @@ class NotionClient:
             url=page.url,
         )
 
+    async def get_task(self, page_id: str) -> Task:
+        """タスクを1件取得.
+
+        Args:
+            page_id: ページID
+
+        Returns:
+            Task: タスクモデル
+        """
+        page = await self.retrieve_page(page_id)
+        return self._parse_task(page)
+
     async def get_tasks(
         self, include_completed: bool = False, database_id: Optional[str] = None
     ) -> list[Task]:
@@ -473,7 +492,64 @@ class NotionClient:
             sorts=sorts,
         )
 
-        # ページをTaskモデルに変換
+        return self._pages_to_tasks(pages)
+
+    async def search_tasks(
+        self,
+        query: Optional[str] = None,
+        status: Optional[str] = None,
+        tag: Optional[str] = None,
+        database_id: Optional[str] = None,
+    ) -> list[Task]:
+        """タスクを検索.
+
+        Args:
+            query: 検索クエリ（タイトルに含まれる文字列）
+            status: ステータスフィルタ
+            tag: タグフィルタ
+            database_id: データベースID
+
+        Returns:
+            list[Task]: タスクのリスト
+        """
+        if database_id is None:
+            database_id = self.config.notion_task_database_id
+
+        filter_conditions: dict[str, Any] = {"and": []}
+
+        # タイトル検索
+        if query:
+            filter_conditions["and"].append({
+                "property": self.config.task_prop_title,
+                "title": {"contains": query},
+            })
+
+        # ステータス検索
+        if status:
+            filter_conditions["and"].append({
+                "property": self.config.task_prop_status,
+                "status": {"equals": status},
+            })
+
+        # タグ検索
+        if tag:
+            filter_conditions["and"].append({
+                "property": self.config.task_prop_tags,
+                "multi_select": {"contains": tag},
+            })
+
+        # 条件がない場合は全件取得（制限あり）
+        if not filter_conditions["and"]:
+            filter_conditions = None
+
+        pages = await self.query_database(
+            database_id=database_id,
+            filter_conditions=filter_conditions,
+        )
+        return self._pages_to_tasks(pages)
+
+    def _pages_to_tasks(self, pages: list[NotionPage]) -> list[Task]:
+        """ページリストをタスクリストに変換."""
         tasks = []
         for page in pages:
             try:
@@ -485,11 +561,6 @@ class NotionClient:
                     extra={"extra_fields": {"page_id": page.id, "error": str(e)}},
                 )
                 continue
-
-        logger.info(
-            f"Retrieved {len(tasks)} tasks",
-            extra={"extra_fields": {"task_count": len(tasks), "database_id": database_id}},
-        )
         return tasks
 
     async def update_page(
@@ -787,6 +858,379 @@ class NotionClient:
                     },
                 }
             ]
-
         logger.info(f"Creating memo: {title}")
         return await self.create_page(database_id, properties, children)
+
+    async def append_block_children(
+        self, block_id: str, children: list[dict[str, Any]]
+    ) -> dict[str, Any]:
+        """ブロックに子ブロックを追加（追記）.
+
+        Args:
+            block_id: ブロックID（またはページID）
+            children: 追加するブロックのリスト
+
+        Returns:
+            dict[str, Any]: APIレスポンス
+        """
+        endpoint = f"blocks/{block_id}/children"
+        request_body = {"children": children}
+
+        logger.info(f"Appending blocks to {block_id}")
+        return await self._request("PATCH", endpoint, request_body)
+
+    async def update_memo(
+        self,
+        page_id: str,
+        title: Optional[str] = None,
+        tags: Optional[list[str]] = None,
+        content: Optional[str] = None,
+    ) -> dict[str, Any]:
+        """メモを更新.
+
+        タイトル、タグの更新、および内容の追記が可能です。
+
+        Args:
+            page_id: メモのページID
+            title: 新しいタイトル（Noneの場合は更新なし）
+            tags: 新しいタグリスト（Noneの場合は更新なし）
+            content: 追記する内容（Noneの場合は追記なし）
+
+        Returns:
+            dict[str, Any]: 更新後のページ情報（プロパティ更新があった場合）
+                             または追記結果（プロパティ更新がなく追記のみの場合）
+        """
+        # プロパティの更新
+        properties: dict[str, Any] = {}
+
+        if title is not None:
+            properties[self.config.memo_prop_title] = {
+                "type": "title",
+                "title": [{"type": "text", "text": {"content": title}}],
+            }
+
+        if tags is not None and self.config.memo_prop_tags:
+            properties[self.config.memo_prop_tags] = {
+                "type": "multi_select",
+                "multi_select": [{"name": tag} for tag in tags],
+            }
+
+        response = {}
+        if properties:
+            logger.info(f"Updating memo properties: {page_id}")
+            response = await self.update_page(page_id, properties)
+
+        # 内容の追記
+        if content:
+            children = [
+                {
+                    "object": "block",
+                    "type": "paragraph",
+                    "paragraph": {
+                        "rich_text": [
+                            {"type": "text", "text": {"content": content}}
+                        ]
+                    },
+                }
+            ]
+            await self.append_block_children(page_id, children)
+            # プロパティ更新がない場合は追記の結果を返すわけではないが、
+            # 便宜上、最後の操作のレスポンスまたは空を返す
+            if not response:
+                # ページの最新状態を取得して返すのが親切だが、
+                # ここでは簡易的に空辞書を返さないようにする
+                pass
+
+    async def get_block_children(
+        self, block_id: str, page_size: int = 100
+    ) -> list[dict[str, Any]]:
+        """ブロックの子要素を取得.
+
+        Args:
+            block_id: ブロックID
+            page_size: 1ページあたりの取得数
+
+        Returns:
+            list[dict[str, Any]]: ブロックのリスト
+        """
+        endpoint = f"blocks/{block_id}/children"
+        request_body = {"page_size": page_size}
+
+        all_blocks = []
+        has_more = True
+        start_cursor = None
+
+        while has_more:
+            params = {"page_size": page_size}
+            if start_cursor:
+                params["start_cursor"] = start_cursor
+
+            # GETリクエストの場合、_requestメソッドのjson_data引数は使えないので修正が必要
+            # ただし、httpx.AsyncClient.requestはparams引数を受け取るが、
+            # 現在の_request実装はjson_data（body）しか受け取っていない。
+            # GETリクエストでクエリパラメータを送るために_requestを修正するか、
+            # ここで直接clientを使用するか、URLに埋め込む必要がある。
+            # 今回は安全のため、URLにクエリパラメータを埋め込む簡易実装とする（_request経由）
+            
+            # 注: _requestはメソッドとエンドポイントを受け取る。
+            # httpxはparamsをサポートするが、ラッパーがサポートしていない。
+            # 簡易的にURLパラメータとして構築する。
+            query_string = f"?page_size={page_size}"
+            if start_cursor:
+                query_string += f"&start_cursor={start_cursor}"
+            
+            response_data = await self._request("GET", f"{endpoint}{query_string}")
+            
+            blocks = response_data.get("results", [])
+            all_blocks.extend(blocks)
+            
+            has_more = response_data.get("has_more", False)
+            start_cursor = response_data.get("next_cursor")
+
+        logger.info(f"Retrieved {len(all_blocks)} blocks from {block_id}")
+        return all_blocks
+
+    async def update_block(
+        self, block_id: str, block_type: str, content: dict[str, Any]
+    ) -> dict[str, Any]:
+        """ブロックを更新.
+
+        Args:
+            block_id: ブロックID
+            block_type: ブロックタイプ（paragraph, to_do など）
+            content: 更新するコンテンツ内容
+
+        Returns:
+            dict[str, Any]: APIレスポンス
+        """
+        endpoint = f"blocks/{block_id}"
+        request_body = {block_type: content}
+
+        logger.info(f"Updating block {block_id}")
+        return await self._request("PATCH", endpoint, request_body)
+
+    async def add_comment_to_page(
+        self, page_id: str, content: str
+    ) -> dict[str, Any]:
+        """ページにコメントを追加.
+
+        Args:
+            page_id: ページID
+            content: コメント内容
+
+        Returns:
+            dict[str, Any]: APIレスポンス
+        """
+        endpoint = "comments"
+        request_body = {
+            "parent": {"page_id": page_id},
+            "rich_text": [{"text": {"content": content}}],
+        }
+
+        logger.info(f"Adding comment to page {page_id}")
+        return await self._request("POST", endpoint, request_body)
+
+    def blocks_to_text(self, blocks: list[dict[str, Any]]) -> str:
+        """ブロックのリストをテキスト（Markdown風）に変換.
+
+        Args:
+            blocks: ブロックのリスト
+
+        Returns:
+            str: テキスト表現
+        """
+        lines = []
+        for block in blocks:
+            block_id = block.get("id", "")
+            type_ = block.get("type")
+            content = block.get(type_, {})
+            rich_text = content.get("rich_text", [])
+            
+            text = ""
+            for rt in rich_text:
+                plain_text = rt.get("plain_text", "")
+                href = rt.get("href")
+                if href:
+                    text += f"[{plain_text}]({href})"
+                else:
+                    text += plain_text
+
+            prefix = ""
+            suffix = ""
+            
+            # ブロックIDを表示（デバッグや操作用）
+            # 特にTODOアイテムなどは操作のためにIDが必要
+            id_str = ""
+            
+            if type_ == "heading_1":
+                prefix = "# "
+            elif type_ == "heading_2":
+                prefix = "## "
+            elif type_ == "heading_3":
+                prefix = "### "
+            elif type_ == "bulleted_list_item":
+                prefix = "- "
+            elif type_ == "numbered_list_item":
+                prefix = "1. "  # 簡易実装
+            elif type_ == "to_do":
+                checked = content.get("checked", False)
+                prefix = "- [x] " if checked else "- [ ] "
+                # TODOアイテムにはIDを付与して操作しやすくする
+                id_str = f" [ID: {block_id}]"
+            elif type_ == "quote":
+                prefix = "> "
+            elif type_ == "code":
+                language = content.get("language", "text")
+                prefix = f"```{language}\n"
+                suffix = "\n```"
+            
+            lines.append(f"{prefix}{text}{id_str}{suffix}")
+            
+        return "\n".join(lines)
+
+    async def retrieve_page(self, page_id: str) -> NotionPage:
+        """ページ情報を取得.
+
+        Args:
+            page_id: ページID
+
+        Returns:
+            NotionPage: ページモデル
+        """
+        endpoint = f"pages/{page_id}"
+        response = await self._request("GET", endpoint)
+        return NotionPage(**response)
+
+    def _parse_memo(self, page: NotionPage) -> Memo:
+        """NotionページをMemoモデルに変換.
+
+        Args:
+            page: Notionページ
+
+        Returns:
+            Memo: メモモデル
+        """
+        properties = page.properties
+
+        # タイトルの取得
+        title_prop_name = self.config.memo_prop_title
+        title_prop = properties.get(title_prop_name)
+        if not title_prop:
+            # プロパティが見つからない場合はデフォルト値またはエラー
+            # ここでは安全のためにUntitledとする
+            title = "Untitled"
+        else:
+            title_list = title_prop.get("title", [])
+            title = title_list[0]["text"]["content"] if title_list else "Untitled"
+
+        # タグの取得
+        tags: list[str] = []
+        if self.config.memo_prop_tags:
+            tags_prop = properties.get(self.config.memo_prop_tags, {})
+            tags_list = tags_prop.get("multi_select", [])
+            tags = [tag["name"] for tag in tags_list]
+
+        return Memo(
+            id=page.id,
+            title=title,
+            tags=tags,
+            created_time=page.created_time,
+            last_edited_time=page.last_edited_time,
+            url=page.url,
+        )
+
+    async def get_memo(self, page_id: str) -> Memo:
+        """メモを1件取得.
+
+        Args:
+            page_id: ページID
+
+        Returns:
+            Memo: メモモデル
+        """
+        page = await self.retrieve_page(page_id)
+        return self._parse_memo(page)
+
+    async def get_memos(
+        self, database_id: Optional[str] = None
+    ) -> list[Memo]:
+        """メモ一覧を取得.
+
+        Args:
+            database_id: データベースID
+
+        Returns:
+            list[Memo]: メモのリスト
+        """
+        if database_id is None:
+            database_id = self.config.notion_memo_database_id
+
+        # 作成日時でソート（新しい順）
+        sorts = [{"timestamp": "created_time", "direction": "descending"}]
+
+        pages = await self.query_database(
+            database_id=database_id,
+            sorts=sorts,
+        )
+
+        return self._pages_to_memos(pages)
+
+    async def search_memos(
+        self,
+        query: Optional[str] = None,
+        tag: Optional[str] = None,
+        database_id: Optional[str] = None,
+    ) -> list[Memo]:
+        """メモを検索.
+
+        Args:
+            query: 検索クエリ（タイトルに含まれる文字列）
+            tag: タグフィルタ
+            database_id: データベースID
+
+        Returns:
+            list[Memo]: メモのリスト
+        """
+        if database_id is None:
+            database_id = self.config.notion_memo_database_id
+
+        filter_conditions: dict[str, Any] = {"and": []}
+
+        # タイトル検索
+        if query:
+            filter_conditions["and"].append({
+                "property": self.config.memo_prop_title,
+                "title": {"contains": query},
+            })
+
+        # タグ検索
+        if tag:
+            filter_conditions["and"].append({
+                "property": self.config.memo_prop_tags,
+                "multi_select": {"contains": tag},
+            })
+
+        # 条件がない場合は全件取得（制限あり）
+        if not filter_conditions["and"]:
+            filter_conditions = None
+
+        pages = await self.query_database(
+            database_id=database_id,
+            filter_conditions=filter_conditions,
+        )
+        return self._pages_to_memos(pages)
+
+    def _pages_to_memos(self, pages: list[NotionPage]) -> list[Memo]:
+        """ページリストをメモリストに変換."""
+        memos = []
+        for page in pages:
+            try:
+                memo = self._parse_memo(page)
+                memos.append(memo)
+            except Exception as e:
+                logger.warning(
+                    f"Failed to parse memo from page {page.id}: {e}",
+                    extra={"extra_fields": {"page_id": page.id, "error": str(e)}},
+                )
+                continue
+        return memos

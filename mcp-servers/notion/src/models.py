@@ -60,6 +60,20 @@ class Task(BaseModel):
     )
 
 
+class Memo(BaseModel):
+    """メモモデル.
+
+    Notionのメモデータベースのページを表現するモデル。
+    """
+
+    id: str = Field(..., description="ページID")
+    title: str = Field(..., description="メモのタイトル")
+    tags: list[str] = Field(default_factory=list, description="タグのリスト")
+    created_time: datetime = Field(..., description="作成日時")
+    last_edited_time: datetime = Field(..., description="最終更新日時")
+    url: str = Field(..., description="NotionページのURL")
+
+
 class NotionPropertyValue(BaseModel):
     """Notionプロパティの値を表す汎用モデル.
 

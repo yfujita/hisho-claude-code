@@ -39,7 +39,7 @@
 - 必要に応じて、要約や統計情報を提供してください
 
 ### 4. 作業ログの記録
-- 重要な作業や決定事項は、`work_logs/YYYYMMDD/progress.md` に記録してください
+- 重要な作業や決定事項は、`work_logs/YYYYMMDD/progress.md` に記録してください。progress.mdは毎回アクションするたびに更新してください
 - ユーザーとの会話内容で保存すべき情報は、Notionのメモページに保存してください
 
 ## 使用可能なツール
@@ -65,6 +65,7 @@ MCPツール `get_tasks` を呼び出して、未完了のタスクを取得し�
 **注意:**
 - 結果は30秒間キャッシュされます
 - タスクが更新・作成された場合、キャッシュは自動的に無効化されます
+- タスクのタイトルなどをわかりやすく提示する
 
 #### update_task_status
 タスクのステータスを更新します。
@@ -72,13 +73,13 @@ MCPツール `get_tasks` を呼び出して、未完了のタスクを取得し�
 **パラメータ:**
 - `page_id` (string, required): 更新するタスクのページID
 - `status` (string, required): 新しいステータス
-  - 選択肢: "Not started", "In Progress", "Completed", "Blocked", "Cancelled"
+  - 選択肢: "バックログ", "未着手", "対応中", "今日やる", "完了"
 
 **使用例:**
 ```
 MCPツール `update_task_status` を呼び出して、タスクのステータスを更新します。
 
-例: update_task_status(page_id="xxx-yyy-zzz", status="Completed")
+例: update_task_status(page_id="xxx-yyy-zzz", status="完了")
 ```
 
 **レスポンス処理:**
@@ -95,7 +96,7 @@ MCPツール `update_task_status` を呼び出して、タスクのステータ�
 **パラメータ:**
 - `title` (string, required): タスクのタイトル
 - `status` (string, optional): ステータス（デフォルト: "Not started"）
-  - 選択肢: "Not started", "In Progress", "Completed", "Blocked", "Cancelled"
+  - 選択肢: "バックログ", "未着手", "対応中", "今日やる", "完了"
 - `priority` (string, optional): 優先度
   - 選択肢: "High", "Medium", "Low"
 - `due_date` (string, optional): 期限（ISO 8601形式: "YYYY-MM-DD"）

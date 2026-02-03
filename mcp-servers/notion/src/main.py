@@ -79,11 +79,12 @@ async def list_tools() -> list[Tool]:
                         "type": "string",
                         "description": "新しいステータス",
                         "enum": [
-                            "Not started",
-                            "In Progress",
-                            "Completed",
-                            "Blocked",
-                            "Cancelled",
+                            "未着手",
+                            "今日やる",
+                            "対応中",
+                            "バックログ",
+                            "完了 🙌",
+                            "キャンセル",
                         ],
                     },
                 },
@@ -105,15 +106,16 @@ async def list_tools() -> list[Tool]:
                     },
                     "status": {
                         "type": "string",
-                        "description": "タスクのステータス（デフォルト: Not started）",
+                        "description": "タスクのステータス（デフォルト: 未着手）",
                         "enum": [
-                            "Not started",
-                            "In Progress",
-                            "Completed",
-                            "Blocked",
-                            "Cancelled",
+                            "未着手",
+                            "今日やる",
+                            "対応中",
+                            "バックログ",
+                            "完了 🙌",
+                            "キャンセル",
                         ],
-                        "default": "Not started",
+                        "default": "未着手",
                     },
                     "priority": {
                         "type": "string",
@@ -159,6 +161,224 @@ async def list_tools() -> list[Tool]:
                 "required": ["title"],
             },
         ),
+        Tool(
+            name="update_task",
+            description=(
+                "Notionのタスクの内容を更新します。"
+                "タイトル、ステータス、優先度、期限、タグを変更できます。"
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "page_id": {
+                        "type": "string",
+                        "description": "更新するタスクのページID",
+                    },
+                    "title": {
+                        "type": "string",
+                        "description": "新しいタイトル（変更する場合のみ）",
+                    },
+                    "status": {
+                        "type": "string",
+                        "description": "新しいステータス（変更する場合のみ）",
+                        "enum": [
+                            "未着手",
+                            "今日やる",
+                            "対応中",
+                            "バックログ",
+                            "完了 🙌",
+                            "キャンセル",
+                        ],
+                    },
+                    "priority": {
+                        "type": "string",
+                        "description": "新しい優先度（変更する場合のみ）",
+                        "enum": ["High", "Medium", "Low"],
+                    },
+                    "due_date": {
+                        "type": "string",
+                        "description": "新しい期限（ISO 8601形式: YYYY-MM-DD）（変更する場合のみ）",
+                    },
+                    "tags": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "新しいタグのリスト（変更する場合のみ）",
+                    },
+                },
+                "required": ["page_id"],
+            },
+        ),
+        Tool(
+            name="update_memo",
+            description=(
+                "Notionのメモの内容を更新します。"
+                "タイトル、タグの変更や、内容（本文）の追記ができます。"
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "page_id": {
+                        "type": "string",
+                        "description": "更新するメモのページID",
+                    },
+                    "title": {
+                        "type": "string",
+                        "description": "新しいタイトル（変更する場合のみ）",
+                    },
+                    "content": {
+                        "type": "string",
+                        "description": "追記する内容（本文）（追記する場合のみ）",
+                    },
+                    "tags": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "新しいタグのリスト（変更する場合のみ）",
+                    },
+                },
+                "required": ["page_id"],
+            },
+        ),
+        Tool(
+            name="list_memos",
+            description=(
+                "Notionのメモデータベースからメモ一覧を取得します。"
+                "作成日時順の降順（新しい順）で返されます。"
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {},
+            },
+        ),
+        Tool(
+            name="read_task",
+            description=(
+                "Notionのタスクの詳細情報を取得します。"
+                "タイトル、ステータス、期限などのプロパティに加え、"
+                "タスクの本文（ブロック）も取得します。"
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "page_id": {
+                        "type": "string",
+                        "description": "取得するタスクのページID",
+                    }
+                },
+                "required": ["page_id"],
+            },
+        ),
+        Tool(
+            name="read_memo",
+            description=(
+                "Notionのメモの詳細情報を取得します。"
+                "タイトル、タグなどのプロパティに加え、"
+                "メモの本文（ブロック）も取得します。"
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "page_id": {
+                        "type": "string",
+                        "description": "取得するメモのページID",
+                    }
+                },
+                "required": ["page_id"],
+            },
+        ),
+        Tool(
+            name="search_tasks",
+            description=(
+                "Notionのタスクを検索します。"
+                "キーワード（タイトル）やタグ、ステータスで絞り込み可能です。"
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "query": {
+                        "type": "string",
+                        "description": "検索キーワード（タイトルに含まれる文字列）",
+                    },
+                    "status": {
+                        "type": "string",
+                        "description": "ステータスで絞り込み",
+                        "enum": [
+                            "未着手",
+                            "今日やる",
+                            "対応中",
+                            "バックログ",
+                            "完了 🙌",
+                            "キャンセル",
+                        ],
+                    },
+                    "tag": {
+                        "type": "string",
+                        "description": "タグで絞り込み",
+                    },
+                },
+            },
+        ),
+        Tool(
+            name="search_memos",
+            description=(
+                "Notionのメモを検索します。"
+                "キーワード（タイトル）やタグで絞り込み可能です。"
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "query": {
+                        "type": "string",
+                        "description": "検索キーワード（タイトルに含まれる文字列）",
+                    },
+                    "tag": {
+                        "type": "string",
+                        "description": "タグで絞り込み",
+                    },
+                },
+            },
+        ),
+        Tool(
+            name="check_subtask_item",
+            description=(
+                "タスクやメモ内のサブタスク（チェックボックス/TODOリスト）の状態を更新します。"
+                "完了（チェックあり）または未完了（チェックなし）に設定できます。"
+                "read_taskなどで取得したBlock IDを使用してください。"
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "block_id": {
+                        "type": "string",
+                        "description": "更新するTODOブロックのID",
+                    },
+                    "checked": {
+                        "type": "boolean",
+                        "description": "チェック状態（true: 完了, false: 未完了）",
+                    },
+                },
+                "required": ["block_id", "checked"],
+            },
+        ),
+        Tool(
+            name="add_comment",
+            description=(
+                "タスクやメモのページにコメントを追加します。"
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "page_id": {
+                        "type": "string",
+                        "description": "コメントを追加するページID",
+                    },
+                    "content": {
+                        "type": "string",
+                        "description": "コメントの内容",
+                    },
+                },
+                "required": ["page_id", "content"],
+            },
+        ),
     ]
 
 
@@ -184,6 +404,24 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
         return await handle_create_task(arguments)
     elif name == "create_memo":
         return await handle_create_memo(arguments)
+    elif name == "update_task":
+        return await handle_update_task(arguments)
+    elif name == "update_memo":
+        return await handle_update_memo(arguments)
+    elif name == "list_memos":
+        return await handle_list_memos(arguments)
+    elif name == "read_task":
+        return await handle_read_task(arguments)
+    elif name == "read_memo":
+        return await handle_read_memo(arguments)
+    elif name == "search_tasks":
+        return await handle_search_tasks(arguments)
+    elif name == "search_memos":
+        return await handle_search_memos(arguments)
+    elif name == "check_subtask_item":
+        return await handle_check_subtask_item(arguments)
+    elif name == "add_comment":
+        return await handle_add_comment(arguments)
     else:
         raise ValueError(f"Unknown tool: {name}")
 
@@ -397,7 +635,7 @@ async def handle_create_task(arguments: dict) -> list[TextContent]:
         list[TextContent]: 作成結果のテキスト
     """
     title = arguments.get("title")
-    status_str = arguments.get("status", "Not started")
+    status_str = arguments.get("status", "未着手")
     priority_str = arguments.get("priority")
     due_date = arguments.get("due_date")
     tags = arguments.get("tags")
@@ -545,6 +783,393 @@ async def handle_create_memo(arguments: dict) -> list[TextContent]:
                 text=f"メモの作成に失敗しました: {str(e)}",
             )
         ]
+
+
+async def handle_update_task(arguments: dict) -> list[TextContent]:
+    """update_taskツールのハンドラ.
+
+    Args:
+        arguments: ツールの引数
+
+    Returns:
+        list[TextContent]: 更新結果のテキスト
+    """
+    page_id = arguments.get("page_id")
+    title = arguments.get("title")
+    status_str = arguments.get("status")
+    priority_str = arguments.get("priority")
+    due_date = arguments.get("due_date")
+    tags = arguments.get("tags")
+
+    if not page_id:
+        return [
+            TextContent(
+                type="text",
+                text="エラー: page_idは必須パラメータです。",
+            )
+        ]
+
+    try:
+        # ステータスと優先度をenumに変換
+        status = TaskStatus(status_str) if status_str else None
+        priority = TaskPriority(priority_str) if priority_str else None
+
+        # タスクを更新
+        updated_task = await notion_client.update_task(
+            page_id=page_id,
+            title=title,
+            status=status,
+            priority=priority,
+            due_date=due_date,
+            tags=tags,
+        )
+
+        # キャッシュを無効化
+        await task_cache.invalidate_database(config.notion_task_database_id)
+
+        # 結果のフォーマット
+        result_lines = [
+            "タスクを更新しました。\n",
+            f"タイトル: {updated_task.title}",
+            f"ステータス: {updated_task.status.value}",
+        ]
+
+        if updated_task.priority:
+            result_lines.append(f"優先度: {updated_task.priority.value}")
+
+        if updated_task.due_date:
+            result_lines.append(f"期限: {updated_task.due_date}")
+
+        if updated_task.tags:
+            tags_str = ", ".join(updated_task.tags)
+            result_lines.append(f"タグ: {tags_str}")
+
+        result_lines.append(f"\nURL: {updated_task.url}")
+
+        return [TextContent(type="text", text="\n".join(result_lines))]
+
+    except ValueError as e:
+        return [
+            TextContent(
+                type="text",
+                text=f"エラー: 無効なパラメータ値です: {str(e)}",
+            )
+        ]
+    except NotionMCPError as e:
+        logger.error(
+            f"Failed to update task: {e}",
+            extra={"extra_fields": {"error_type": type(e).__name__, "page_id": page_id}},
+        )
+        return [
+            TextContent(
+                type="text",
+                text=f"タスクの更新に失敗しました: {e.message}",
+            )
+        ]
+    except Exception as e:
+        logger.exception("Unexpected error in update_task")
+        return [
+            TextContent(
+                type="text",
+                text=f"タスクの更新に失敗しました: {str(e)}",
+            )
+        ]
+
+
+async def handle_update_memo(arguments: dict) -> list[TextContent]:
+    """update_memoツールのハンドラ.
+
+    Args:
+        arguments: ツールの引数
+
+    Returns:
+        list[TextContent]: 更新結果のテキスト
+    """
+    page_id = arguments.get("page_id")
+    title = arguments.get("title")
+    content = arguments.get("content")
+    tags = arguments.get("tags")
+
+    if not page_id:
+        return [
+            TextContent(
+                type="text",
+                text="エラー: page_idは必須パラメータです。",
+            )
+        ]
+
+    try:
+        # メモを更新
+        await notion_client.update_memo(
+            page_id=page_id,
+            title=title,
+            tags=tags,
+            content=content,
+        )
+
+        # 結果のフォーマット
+        result_lines = ["メモを更新しました。\n"]
+
+        if title:
+            result_lines.append(f"新しいタイトル: {title}")
+
+        if content:
+            # 内容が長い場合は省略
+            content_preview = (
+                content[:100] + "..." if len(content) > 100 else content
+            )
+            result_lines.append(f"追記した内容: {content_preview}")
+
+        if tags:
+            tags_str = ", ".join(tags)
+            result_lines.append(f"新しいタグ: {tags_str}")
+
+        return [TextContent(type="text", text="\n".join(result_lines))]
+
+    except NotionMCPError as e:
+        logger.error(
+            f"Failed to update memo: {e}",
+            extra={"extra_fields": {"error_type": type(e).__name__, "page_id": page_id}},
+        )
+        return [
+            TextContent(
+                type="text",
+                text=f"メモの更新に失敗しました: {e.message}",
+            )
+        ]
+    except Exception as e:
+        logger.exception("Unexpected error in update_memo")
+        return [
+            TextContent(
+                type="text",
+                text=f"メモの更新に失敗しました: {str(e)}",
+            )
+        ]
+
+async def handle_list_memos(arguments: dict) -> list[TextContent]:
+    """list_memosツールのハンドラ.
+
+    Args:
+        arguments: ツールの引数
+
+    Returns:
+        list[TextContent]: メモ一覧のテキスト
+    """
+    try:
+        memos = await notion_client.get_memos()
+
+        if not memos:
+            return [
+                TextContent(
+                    type="text",
+                    text="メモが見つかりませんでした。",
+                )
+            ]
+
+        result_lines = [f"メモ一覧（全{len(memos)}件）\n"]
+
+        for memo in memos:
+            tags_str = f" #{' #'.join(memo.tags)}" if memo.tags else ""
+            date_str = memo.created_time.strftime("%Y-%m-%d %H:%M")
+            result_lines.append(
+                f"📝 {memo.title}\n"
+                f"   - 作成日: {date_str}\n"
+                f"   - タグ: {tags_str}\n"
+                f"   - URL: {memo.url}\n"
+                f"   - ID: {memo.id}\n"
+            )
+
+        return [TextContent(type="text", text="\n".join(result_lines))]
+
+    except Exception as e:
+        logger.exception("Unexpected error in list_memos")
+        return [
+            TextContent(
+                type="text",
+                text=f"メモ一覧の取得に失敗しました: {str(e)}",
+            )
+        ]
+
+
+async def handle_read_task(arguments: dict) -> list[TextContent]:
+    """read_taskツールのハンドラ.
+
+    Args:
+        arguments: ツールの引数
+
+    Returns:
+        list[TextContent]: タスク詳細のテキスト
+    """
+    page_id = arguments.get("page_id")
+    if not page_id:
+        return [TextContent(type="text", text="エラー: page_idは必須です")]
+
+    try:
+        # タスク情報の取得
+        task = await notion_client.get_task(page_id)
+        
+        # 本文（ブロック）の取得
+        blocks = await notion_client.get_block_children(page_id)
+        content_text = notion_client.blocks_to_text(blocks)
+
+        priority_str = f"（優先度: {task.priority.value}）" if task.priority else ""
+        due_str = f"期限: {task.due_date}" if task.due_date else "期限なし"
+        tags_str = f"#{' #'.join(task.tags)}" if task.tags else "なし"
+        
+        result = (
+            f"# {task.title} {priority_str}\n\n"
+            f"- ステータス: {task.status.value}\n"
+            f"- {due_str}\n"
+            f"- タグ: {tags_str}\n"
+            f"- URL: {task.url}\n\n"
+            f"## 内容\n\n"
+            f"{content_text}"
+        )
+
+        return [TextContent(type="text", text=result)]
+
+    except NotionMCPError as e:
+        return [TextContent(type="text", text=f"タスクの取得に失敗しました: {e.message}")]
+    except Exception as e:
+        logger.exception("Unexpected error in read_task")
+        return [TextContent(type="text", text=f"タスクの取得に失敗しました: {str(e)}")]
+
+
+async def handle_read_memo(arguments: dict) -> list[TextContent]:
+    """read_memoツールのハンドラ.
+
+    Args:
+        arguments: ツールの引数
+
+    Returns:
+        list[TextContent]: メモ詳細のテキスト
+    """
+    page_id = arguments.get("page_id")
+    if not page_id:
+        return [TextContent(type="text", text="エラー: page_idは必須です")]
+
+    try:
+        # メモ情報の取得
+        memo = await notion_client.get_memo(page_id)
+        
+        # 本文（ブロック）の取得
+        blocks = await notion_client.get_block_children(page_id)
+        content_text = notion_client.blocks_to_text(blocks)
+
+        tags_str = f"#{' #'.join(memo.tags)}" if memo.tags else "なし"
+        date_str = memo.created_time.strftime("%Y-%m-%d %H:%M")
+        
+        result = (
+            f"# {memo.title}\n\n"
+            f"- 作成日: {date_str}\n"
+            f"- タグ: {tags_str}\n"
+            f"- URL: {memo.url}\n\n"
+            f"## 内容\n\n"
+            f"{content_text}"
+        )
+
+        return [TextContent(type="text", text=result)]
+
+    except NotionMCPError as e:
+        return [TextContent(type="text", text=f"メモの取得に失敗しました: {e.message}")]
+    except Exception as e:
+        logger.exception("Unexpected error in read_memo")
+        return [TextContent(type="text", text=f"メモの取得に失敗しました: {str(e)}")]
+
+
+async def handle_search_tasks(arguments: dict) -> list[TextContent]:
+    """search_tasksツールのハンドラ."""
+    query = arguments.get("query")
+    status = arguments.get("status")
+    tag = arguments.get("tag")
+
+    try:
+        tasks = await notion_client.search_tasks(query=query, status=status, tag=tag)
+        
+        if not tasks:
+            return [TextContent(type="text", text="条件に一致するタスクは見つかりませんでした。")]
+
+        result_lines = [f"検索結果（{len(tasks)}件）\n"]
+        for task in tasks:
+            priority_str = f"（優先度: {task.priority.value}）" if task.priority else ""
+            tags_str = f" #{' #'.join(task.tags)}" if task.tags else ""
+            result_lines.append(
+                f"{task.title}{priority_str}\n"
+                f"   - ステータス: {task.status.value}\n"
+                f"   - URL: {task.url}{tags_str}\n"
+                f"   - ID: {task.id}\n"
+            )
+        
+        return [TextContent(type="text", text="\n".join(result_lines))]
+    except Exception as e:
+        logger.exception("Unexpected error in search_tasks")
+        return [TextContent(type="text", text=f"タスクの検索に失敗しました: {str(e)}")]
+
+
+async def handle_search_memos(arguments: dict) -> list[TextContent]:
+    """search_memosツールのハンドラ."""
+    query = arguments.get("query")
+    tag = arguments.get("tag")
+
+    try:
+        memos = await notion_client.search_memos(query=query, tag=tag)
+        
+        if not memos:
+            return [TextContent(type="text", text="条件に一致するメモは見つかりませんでした。")]
+
+        result_lines = [f"検索結果（{len(memos)}件）\n"]
+        for memo in memos:
+            tags_str = f" #{' #'.join(memo.tags)}" if memo.tags else ""
+            date_str = memo.created_time.strftime("%Y-%m-%d")
+            result_lines.append(
+                f"📝 {memo.title} ({date_str})\n"
+                f"   - URL: {memo.url}{tags_str}\n"
+                f"   - ID: {memo.id}\n"
+            )
+        
+        return [TextContent(type="text", text="\n".join(result_lines))]
+    except Exception as e:
+        logger.exception("Unexpected error in search_memos")
+        return [TextContent(type="text", text=f"メモの検索に失敗しました: {str(e)}")]
+
+
+async def handle_check_subtask_item(arguments: dict) -> list[TextContent]:
+    """check_subtask_itemツールのハンドラ."""
+    block_id = arguments.get("block_id")
+    checked = arguments.get("checked")
+
+    if not block_id:
+        return [TextContent(type="text", text="エラー: block_idは必須です")]
+    if checked is None:
+        return [TextContent(type="text", text="エラー: checkedは必須です")]
+
+    try:
+        await notion_client.update_block(
+            block_id, 
+            "to_do", 
+            {"checked": checked}
+        )
+        status_msg = "完了" if checked else "未完了"
+        return [TextContent(type="text", text=f"サブタスク（TODO）を{status_msg}に更新しました。")]
+    except Exception as e:
+        logger.exception("Unexpected error in check_subtask_item")
+        return [TextContent(type="text", text=f"サブタスクの更新に失敗しました: {str(e)}")]
+
+
+async def handle_add_comment(arguments: dict) -> list[TextContent]:
+    """add_commentツールのハンドラ."""
+    page_id = arguments.get("page_id")
+    content = arguments.get("content")
+
+    if not page_id or not content:
+        return [TextContent(type="text", text="エラー: page_idとcontentは必須です")]
+
+    try:
+        await notion_client.add_comment_to_page(page_id, content)
+        return [TextContent(type="text", text="コメントを追加しました。")]
+    except Exception as e:
+        logger.exception("Unexpected error in add_comment")
+        return [TextContent(type="text", text=f"コメントの追加に失敗しました: {str(e)}")]
 
 
 async def main() -> None:
