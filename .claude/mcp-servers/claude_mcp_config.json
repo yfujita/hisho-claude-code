@@ -1,0 +1,16 @@
+{
+  "mcpServers": {
+    "hisho-notion": {
+      "command": "docker",
+      "args": [
+        "exec",
+        "-i",
+        "hisho-notion-mcp",
+        "python",
+        "-m",
+        "src.main"
+      ],
+      "env": {}
+    }
+  }
+}

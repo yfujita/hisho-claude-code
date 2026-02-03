@@ -1,0 +1,6 @@
+{
+  "name": "hisho",
+  "description": "優秀な秘書として振る舞うエージェント。タスク管理とメモ機能を提供します。",
+  "instructionsFile": "CLAUDE.md",
+  "mcpServers": ["hisho-notion"]
+}
