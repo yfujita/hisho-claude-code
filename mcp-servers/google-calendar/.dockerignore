@@ -31,6 +31,7 @@ ENV/
 .coverage
 htmlcov/
 .tox/
+tests/
 
 # IDE
 .vscode/
@@ -43,20 +44,16 @@ htmlcov/
 .env
 .env.local
 
-# Docker
-docker-compose.override.yml
+# Git
+.git/
+.gitignore
 
-# macOS
-.DS_Store
+# Documentation
+README.md
+*.md
+
+# Credentials (will be mounted as volume)
+credentials/
 
 # Logs
 *.log
-
-# Work logs (個別ファイルは追跡しない)
-work_logs/*
-!work_logs/.gitkeep
-claude_progress/
-
-# Google Calendar credentials
-mcp-servers/google-calendar/credentials/*
-!mcp-servers/google-calendar/credentials/.gitkeep

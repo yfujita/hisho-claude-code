@@ -11,6 +11,18 @@
         "src.main"
       ],
       "env": {}
+    },
+    "hisho-google-calendar": {
+      "command": "docker",
+      "args": [
+        "exec",
+        "-i",
+        "hisho-google-calendar-mcp",
+        "python",
+        "-m",
+        "src.main"
+      ],
+      "env": {}
     }
   }
 }

@@ -149,6 +149,74 @@ MCPツール `create_memo` を呼び出して、新しいメモを作成しま�
 - メモはメモ用データベースに作成されます
 - contentが長い場合は、レスポンスで省略表示されます
 
+### MCPツール: Google Calendar連携
+
+#### get_events
+Google Calendarから予定一覧を取得します。
+
+**パラメータ:**
+- `time_min` (string, optional): 取得開始日時（ISO 8601形式）。省略時は現在時刻
+- `time_max` (string, optional): 取得終了日時（ISO 8601形式）。省略時はtime_minから7日後
+- `max_results` (integer, optional): 最大取得件数（デフォルト: 10）
+
+**使用例:**
+```
+MCPツール `get_events` を呼び出して、今週の予定を取得します。
+```
+
+**レスポンス処理:**
+- 予定を今日・今週・それ以降に分類して表示
+- 時間、タイトル、場所、IDを表示
+
+#### get_event
+指定したイベントの詳細情報を取得します。
+
+**パラメータ:**
+- `event_id` (string, required): イベントID
+
+**使用例:**
+```
+MCPツール `get_event` を呼び出して、詳細を確認します。
+```
+
+#### create_event
+Google Calendarに新しい予定を作成します。
+
+**パラメータ:**
+- `summary` (string, required): 予定のタイトル
+- `start_time` (string, required): 開始日時（ISO 8601形式）
+- `end_time` (string, required): 終了日時（ISO 8601形式）
+- `location` (string, optional): 場所
+- `description` (string, optional): 詳細説明
+
+**使用例:**
+```
+MCPツール `create_event` を呼び出して、予定を作成します。
+
+例: create_event(
+  summary="チーム定例",
+  start_time="2026-02-05T10:00:00+09:00",
+  end_time="2026-02-05T11:00:00+09:00",
+  location="オンライン"
+)
+```
+
+#### update_event
+既存の予定を更新します。
+
+**パラメータ:**
+- `event_id` (string, required): 更新するイベントのID
+- `summary` (string, optional): 新しいタイトル
+- `start_time` (string, optional): 新しい開始日時
+- `end_time` (string, optional): 新しい終了日時
+- `location` (string, optional): 新しい場所
+- `description` (string, optional): 新しい詳細説明
+
+**使用例:**
+```
+MCPツール `update_event` を呼び出して、予定を変更します。
+```
+
 ## コーディング規約（エージェント自身がコードを書く場合）
 
 ### Python
@@ -271,6 +339,27 @@ URL: https://www.notion.so/xxx-yyy-zzz
 URL: https://www.notion.so/xxx-yyy-zzz
 
 後ほど詳細を追記される場合は、上記URLからNotionで直接編集できます。
+```
+
+### ユーザー: 「明日の10時から11時まで会議を入れて」
+
+**秘書エージェントの応答:**
+
+1. 現在の日時を確認 (例: 2026-02-04)
+2. 明日の日付を計算 (2026-02-05)
+3. ISO 8601形式の日時文字列を作成
+
+```
+承知いたしました。明日の10時に会議の予定を作成いたします。タイトルはいかがいたしましょうか？
+（ユーザーが「定例MTG」と返答したと仮定）
+
+（MCPツール `create_event` を呼び出し）
+arguments={
+  "summary": "定例MTG",
+  "start_time": "2026-02-05T10:00:00+09:00",
+  "end_time": "2026-02-05T11:00:00+09:00"
+}
+```
 ```
 
 ## エラーハンドリング

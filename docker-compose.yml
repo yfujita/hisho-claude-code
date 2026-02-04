@@ -32,3 +32,32 @@ services:
     #   timeout: 10s
     #   retries: 3
     #   start_period: 10s
+
+  google-calendar-mcp:
+    build:
+      context: ./mcp-servers/google-calendar
+      dockerfile: Dockerfile
+    container_name: hisho-google-calendar-mcp
+    environment:
+      - GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID}
+      - GOOGLE_CLIENT_SECRET=${GOOGLE_CLIENT_SECRET}
+      - GOOGLE_REFRESH_TOKEN=${GOOGLE_REFRESH_TOKEN}
+      - GOOGLE_ACCESS_TOKEN=${GOOGLE_ACCESS_TOKEN}
+      - GOOGLE_CALENDAR_TIMEZONE=${GOOGLE_CALENDAR_TIMEZONE:-Asia/Tokyo}
+      - MCP_LOG_LEVEL=${MCP_LOG_LEVEL:-INFO}
+    env_file:
+      - .env
+    volumes:
+      - ./mcp-servers/google-calendar/credentials:/app/credentials:ro
+    stdin_open: true
+    tty: true
+    restart: unless-stopped
+    # リソース制限
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 256M
+        reservations:
+          cpus: "0.25"
+          memory: 128M
