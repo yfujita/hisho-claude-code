@@ -46,6 +46,17 @@ async def list_tools() -> list[Tool]:
     """
     return [
         Tool(
+            name="list_calendars",
+            description=(
+                "Google Calendarのカレンダー一覧を取得します。"
+                "アクセス可能なすべてのカレンダーの情報（ID、名前、アクセス権限など）を取得できます。"
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {},
+            },
+        ),
+        Tool(
             name="get_events",
             description=(
                 "Google Calendarから予定一覧を取得します。"
@@ -54,6 +65,12 @@ async def list_tools() -> list[Tool]:
             inputSchema={
                 "type": "object",
                 "properties": {
+                    "calendar_id": {
+                        "type": "string",
+                        "description": (
+                            "カレンダーID。省略時はデフォルトカレンダーを使用します。"
+                        ),
+                    },
                     "time_min": {
                         "type": "string",
                         "description": (
@@ -85,6 +102,12 @@ async def list_tools() -> list[Tool]:
                     "event_id": {
                         "type": "string",
                         "description": "イベントID",
+                    },
+                    "calendar_id": {
+                        "type": "string",
+                        "description": (
+                            "カレンダーID。省略時はデフォルトカレンダーを使用します。"
+                        ),
                     },
                 },
                 "required": ["event_id"],
@@ -121,6 +144,12 @@ async def list_tools() -> list[Tool]:
                         "type": "string",
                         "description": "詳細説明（オプション）",
                     },
+                    "calendar_id": {
+                        "type": "string",
+                        "description": (
+                            "カレンダーID。省略時はデフォルトカレンダーを使用します。"
+                        ),
+                    },
                 },
                 "required": ["summary", "start_time", "end_time"],
             },
@@ -155,8 +184,52 @@ async def list_tools() -> list[Tool]:
                         "type": "string",
                         "description": "新しい詳細説明（オプション）",
                     },
+                    "calendar_id": {
+                        "type": "string",
+                        "description": (
+                            "カレンダーID。省略時はデフォルトカレンダーを使用します。"
+                        ),
+                    },
                 },
                 "required": ["event_id"],
+            },
+        ),
+        Tool(
+            name="get_events_from_multiple_calendars",
+            description=(
+                "複数のGoogle Calendarから予定を一括取得します。"
+                "複数のカレンダーの予定をまとめて時系列順に表示できます。"
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "calendar_ids": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": (
+                            "カレンダーIDのリスト。省略時はすべてのカレンダーから取得します。"
+                        ),
+                    },
+                    "time_min": {
+                        "type": "string",
+                        "description": (
+                            "取得開始日時（ISO 8601形式、例: 2026-02-04T00:00:00+09:00）。"
+                            "省略時は現在時刻から取得します。"
+                        ),
+                    },
+                    "time_max": {
+                        "type": "string",
+                        "description": (
+                            "取得終了日時（ISO 8601形式）。"
+                            "省略時はtime_minから7日後まで取得します。"
+                        ),
+                    },
+                    "max_results_per_calendar": {
+                        "type": "integer",
+                        "description": "各カレンダーからの最大取得件数（デフォルト: 10）",
+                        "default": 10,
+                    },
+                },
             },
         ),
     ]
@@ -176,7 +249,9 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
     Raises:
         ValueError: 未知のツール名が指定された場合
     """
-    if name == "get_events":
+    if name == "list_calendars":
+        return await handle_list_calendars(arguments)
+    elif name == "get_events":
         return await handle_get_events(arguments)
     elif name == "get_event":
         return await handle_get_event(arguments)
@@ -184,8 +259,75 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
         return await handle_create_event(arguments)
     elif name == "update_event":
         return await handle_update_event(arguments)
+    elif name == "get_events_from_multiple_calendars":
+        return await handle_get_events_from_multiple_calendars(arguments)
     else:
         raise ValueError(f"Unknown tool: {name}")
+
+
+async def handle_list_calendars(arguments: dict) -> list[TextContent]:
+    """list_calendarsツールのハンドラ.
+
+    Args:
+        arguments: ツールの引数（このツールでは未使用）
+
+    Returns:
+        list[TextContent]: カレンダー一覧のテキスト
+    """
+    try:
+        # カレンダー一覧を取得
+        calendars = await calendar_client.list_calendars()
+
+        # カレンダーが0件の場合
+        if not calendars:
+            return [
+                TextContent(
+                    type="text",
+                    text="アクセス可能なカレンダーが見つかりませんでした。",
+                )
+            ]
+
+        # 結果のフォーマット
+        result_lines = [f"カレンダー一覧（全{len(calendars)}件）\n"]
+
+        # プライマリカレンダーを先頭に表示
+        primary_calendars = [cal for cal in calendars if cal.primary]
+        other_calendars = [cal for cal in calendars if not cal.primary]
+
+        # プライマリカレンダー
+        if primary_calendars:
+            result_lines.append("【プライマリカレンダー】")
+            for calendar in primary_calendars:
+                result_lines.append(format_calendar_summary(calendar))
+
+        # その他のカレンダー
+        if other_calendars:
+            if primary_calendars:
+                result_lines.append("\n【その他のカレンダー】")
+            for calendar in other_calendars:
+                result_lines.append(format_calendar_summary(calendar))
+
+        return [TextContent(type="text", text="\n".join(result_lines))]
+
+    except GoogleCalendarMCPError as e:
+        logger.error(
+            f"Failed to list calendars: {e}",
+            extra={"extra_fields": {"error_type": type(e).__name__, "details": e.details}},
+        )
+        return [
+            TextContent(
+                type="text",
+                text=f"カレンダー一覧の取得に失敗しました: {e.message}",
+            )
+        ]
+    except Exception as e:
+        logger.exception("Unexpected error in list_calendars")
+        return [
+            TextContent(
+                type="text",
+                text=f"カレンダー一覧の取得に失敗しました: {str(e)}",
+            )
+        ]
 
 
 async def handle_get_events(arguments: dict) -> list[TextContent]:
@@ -198,6 +340,7 @@ async def handle_get_events(arguments: dict) -> list[TextContent]:
         list[TextContent]: 予定一覧のテキスト
     """
     # パラメータの取得
+    calendar_id = arguments.get("calendar_id") or config.google_calendar_id
     time_min_str = arguments.get("time_min")
     time_max_str = arguments.get("time_max")
     max_results = arguments.get("max_results", 10)
@@ -218,7 +361,7 @@ async def handle_get_events(arguments: dict) -> list[TextContent]:
 
         # イベントを取得
         events = await calendar_client.list_events(
-            calendar_id=config.google_calendar_id,
+            calendar_id=calendar_id,
             time_min=time_min,
             time_max=time_max,
             max_results=max_results,
@@ -252,7 +395,13 @@ async def handle_get_events(arguments: dict) -> list[TextContent]:
                 other_events.append(event)
 
         # 結果のフォーマット
-        result_lines = [f"予定一覧（全{len(events)}件）\n"]
+        result_lines = []
+
+        # カレンダー情報を追加（デフォルトカレンダーでない場合）
+        if calendar_id != config.google_calendar_id:
+            result_lines.append(f"カレンダー: {calendar_id}\n")
+
+        result_lines.append(f"予定一覧（全{len(events)}件）\n")
 
         # 今日の予定
         if today_events:
@@ -312,6 +461,7 @@ async def handle_get_event(arguments: dict) -> list[TextContent]:
         list[TextContent]: 予定詳細のテキスト
     """
     event_id = arguments.get("event_id")
+    calendar_id = arguments.get("calendar_id") or config.google_calendar_id
 
     if not event_id:
         return [
@@ -325,7 +475,7 @@ async def handle_get_event(arguments: dict) -> list[TextContent]:
         # イベント詳細を取得
         event = await calendar_client.get_event(
             event_id=event_id,
-            calendar_id=config.google_calendar_id,
+            calendar_id=calendar_id,
         )
 
         # 詳細のフォーマット
@@ -368,6 +518,7 @@ async def handle_create_event(arguments: dict) -> list[TextContent]:
     end_time_str = arguments.get("end_time")
     location = arguments.get("location")
     description = arguments.get("description")
+    calendar_id = arguments.get("calendar_id") or config.google_calendar_id
 
     if not summary or not start_time_str or not end_time_str:
         return [
@@ -406,16 +557,21 @@ async def handle_create_event(arguments: dict) -> list[TextContent]:
         # イベントを作成
         created_event = await calendar_client.create_event(
             event=event,
-            calendar_id=config.google_calendar_id,
+            calendar_id=calendar_id,
         )
 
         # 結果のフォーマット
-        result_lines = [
-            "予定を作成しました。\n",
+        result_lines = ["予定を作成しました。\n"]
+
+        # カレンダー情報を追加（デフォルトカレンダーでない場合）
+        if calendar_id != config.google_calendar_id:
+            result_lines.append(f"カレンダー: {calendar_id}")
+
+        result_lines.extend([
             f"タイトル: {created_event.summary}",
             f"開始: {format_event_time(created_event.start)}",
             f"終了: {format_event_time(created_event.end)}",
-        ]
+        ])
 
         if created_event.location:
             result_lines.append(f"場所: {created_event.location}")
@@ -477,6 +633,7 @@ async def handle_update_event(arguments: dict) -> list[TextContent]:
     end_time_str = arguments.get("end_time")
     location = arguments.get("location")
     description = arguments.get("description")
+    calendar_id = arguments.get("calendar_id") or config.google_calendar_id
 
     if not event_id:
         return [
@@ -526,16 +683,21 @@ async def handle_update_event(arguments: dict) -> list[TextContent]:
         updated_event = await calendar_client.update_event(
             event_id=event_id,
             updates=updates,
-            calendar_id=config.google_calendar_id,
+            calendar_id=calendar_id,
         )
 
         # 結果のフォーマット
-        result_lines = [
-            "予定を更新しました。\n",
+        result_lines = ["予定を更新しました。\n"]
+
+        # カレンダー情報を追加（デフォルトカレンダーでない場合）
+        if calendar_id != config.google_calendar_id:
+            result_lines.append(f"カレンダー: {calendar_id}")
+
+        result_lines.extend([
             f"タイトル: {updated_event.summary}",
             f"開始: {format_event_time(updated_event.start)}",
             f"終了: {format_event_time(updated_event.end)}",
-        ]
+        ])
 
         if updated_event.location:
             result_lines.append(f"場所: {updated_event.location}")
@@ -568,6 +730,205 @@ async def handle_update_event(arguments: dict) -> list[TextContent]:
             TextContent(
                 type="text",
                 text=f"予定の更新に失敗しました: {str(e)}",
+            )
+        ]
+
+
+async def handle_get_events_from_multiple_calendars(arguments: dict) -> list[TextContent]:
+    """get_events_from_multiple_calendarsツールのハンドラ.
+
+    複数のカレンダーから予定を一括取得し、時系列順に表示します。
+
+    Args:
+        arguments: ツールの引数
+
+    Returns:
+        list[TextContent]: 予定一覧のテキスト
+    """
+    calendar_ids_arg = arguments.get("calendar_ids")
+    time_min_str = arguments.get("time_min")
+    time_max_str = arguments.get("time_max")
+    max_results_per_calendar = arguments.get("max_results_per_calendar", 10)
+
+    try:
+        # 日時の解析
+        if time_min_str:
+            time_min = parse_datetime(time_min_str)
+        else:
+            # デフォルト: 現在時刻（タイムゾーン付き）
+            time_min = datetime.now(timezone.utc)
+
+        if time_max_str:
+            time_max = parse_datetime(time_max_str)
+        else:
+            # デフォルト: time_minから7日後
+            time_max = time_min + timedelta(days=7)
+
+        # カレンダーIDリストの取得
+        # 省略時はすべてのカレンダーから取得
+        if calendar_ids_arg:
+            calendar_ids = calendar_ids_arg
+            # カレンダー名のマッピングを取得（表示用）
+            all_calendars = await calendar_client.list_calendars()
+            calendar_name_map = {cal.id: cal.summary for cal in all_calendars}
+        else:
+            # すべてのカレンダーを取得
+            all_calendars = await calendar_client.list_calendars()
+            calendar_ids = [cal.id for cal in all_calendars]
+            calendar_name_map = {cal.id: cal.summary for cal in all_calendars}
+
+        # カレンダーが0件の場合
+        if not calendar_ids:
+            return [
+                TextContent(
+                    type="text",
+                    text="アクセス可能なカレンダーが見つかりませんでした。",
+                )
+            ]
+
+        # 各カレンダーから予定を並行取得
+        # エラーが発生しても他のカレンダーは継続して取得する
+        async def fetch_events_from_calendar(calendar_id: str) -> tuple[str, list[CalendarEvent], Optional[str]]:
+            """カレンダーから予定を取得（エラー処理込み）.
+
+            Args:
+                calendar_id: カレンダーID
+
+            Returns:
+                tuple[str, list[CalendarEvent], Optional[str]]:
+                    (カレンダーID, 予定リスト, エラーメッセージ)
+            """
+            try:
+                events = await calendar_client.list_events(
+                    calendar_id=calendar_id,
+                    time_min=time_min,
+                    time_max=time_max,
+                    max_results=max_results_per_calendar,
+                )
+                return (calendar_id, events, None)
+            except GoogleCalendarMCPError as e:
+                # エラーが発生しても他のカレンダーは継続
+                logger.warning(
+                    f"Failed to get events from calendar '{calendar_id}': {e}",
+                    extra={"extra_fields": {"calendar_id": calendar_id, "error": str(e)}},
+                )
+                return (calendar_id, [], f"{e.message}")
+            except Exception as e:
+                logger.warning(
+                    f"Unexpected error getting events from calendar '{calendar_id}': {e}",
+                    extra={"extra_fields": {"calendar_id": calendar_id, "error": str(e)}},
+                )
+                return (calendar_id, [], f"予期しないエラー: {str(e)}")
+
+        # 並行実行
+        results = await asyncio.gather(
+            *[fetch_events_from_calendar(cal_id) for cal_id in calendar_ids]
+        )
+
+        # 結果を集約
+        all_events: list[tuple[CalendarEvent, str, str]] = []  # (event, calendar_id, calendar_name)
+        error_messages: list[str] = []
+
+        for calendar_id, events, error_msg in results:
+            calendar_name = calendar_name_map.get(calendar_id, calendar_id)
+
+            if error_msg:
+                # エラーが発生したカレンダーを記録
+                error_messages.append(f"⚠️ {calendar_name}: {error_msg}")
+            else:
+                # 予定にカレンダー情報を付加
+                for event in events:
+                    all_events.append((event, calendar_id, calendar_name))
+
+        # 予定が0件の場合
+        if not all_events:
+            result_lines = ["指定期間内に予定が見つかりませんでした。"]
+            if error_messages:
+                result_lines.append("\n【エラー】")
+                result_lines.extend(error_messages)
+            return [TextContent(type="text", text="\n".join(result_lines))]
+
+        # 開始日時順にソート
+        all_events.sort(key=lambda item: get_event_date(item[0]))
+
+        # 今日と今週の判定用
+        today = datetime.now().date()
+        week_end = today + timedelta(days=7)
+
+        # イベントを今日・今週・それ以降に分類
+        today_events = []
+        this_week_events = []
+        other_events = []
+
+        for event_tuple in all_events:
+            event, calendar_id, calendar_name = event_tuple
+            event_date = get_event_date(event)
+            if event_date == today:
+                today_events.append(event_tuple)
+            elif today < event_date <= week_end:
+                this_week_events.append(event_tuple)
+            else:
+                other_events.append(event_tuple)
+
+        # 結果のフォーマット
+        result_lines = []
+
+        # サマリー情報
+        total_calendars = len(calendar_ids)
+        successful_calendars = total_calendars - len(error_messages)
+        result_lines.append(
+            f"複数カレンダーから予定を取得しました（{successful_calendars}/{total_calendars}カレンダー、全{len(all_events)}件）\n"
+        )
+
+        # 今日の予定
+        if today_events:
+            result_lines.append("【今日の予定】")
+            for event, calendar_id, calendar_name in today_events:
+                result_lines.append(format_event_with_calendar(event, calendar_name))
+
+        # 今週の予定
+        if this_week_events:
+            result_lines.append("\n【今週の予定】")
+            for event, calendar_id, calendar_name in this_week_events:
+                result_lines.append(format_event_with_calendar(event, calendar_name))
+
+        # その他の予定
+        if other_events:
+            result_lines.append("\n【それ以降の予定】")
+            for event, calendar_id, calendar_name in other_events:
+                result_lines.append(format_event_with_calendar(event, calendar_name))
+
+        # エラーメッセージを追加
+        if error_messages:
+            result_lines.append("\n【エラーが発生したカレンダー】")
+            result_lines.extend(error_messages)
+
+        return [TextContent(type="text", text="\n".join(result_lines))]
+
+    except ValueError as e:
+        return [
+            TextContent(
+                type="text",
+                text=f"エラー: 日時の形式が不正です: {str(e)}",
+            )
+        ]
+    except GoogleCalendarMCPError as e:
+        logger.error(
+            f"Failed to get events from multiple calendars: {e}",
+            extra={"extra_fields": {"error_type": type(e).__name__, "details": e.details}},
+        )
+        return [
+            TextContent(
+                type="text",
+                text=f"予定の取得に失敗しました: {e.message}",
+            )
+        ]
+    except Exception as e:
+        logger.exception("Unexpected error in get_events_from_multiple_calendars")
+        return [
+            TextContent(
+                type="text",
+                text=f"予定の取得に失敗しました: {str(e)}",
             )
         ]
 
@@ -636,6 +997,48 @@ def format_event_time(event_dt: EventDateTime) -> str:
         return "（日時不明）"
 
 
+def format_calendar_summary(calendar) -> str:
+    """カレンダーの概要をフォーマット.
+
+    Args:
+        calendar: カレンダー
+
+    Returns:
+        str: フォーマットされたカレンダー概要
+    """
+    # アクセス権限の日本語表示
+    access_role_map = {
+        "owner": "オーナー",
+        "writer": "編集者",
+        "reader": "閲覧者",
+        "freeBusyReader": "空き時間情報のみ",
+    }
+    access_role_ja = access_role_map.get(calendar.access_role, calendar.access_role)
+
+    # プライマリカレンダーの場合は印をつける
+    primary_mark = "⭐ " if calendar.primary else ""
+
+    result = [
+        f"{primary_mark}📅 {calendar.summary}",
+        f"   - ID: {calendar.id}",
+        f"   - アクセス権限: {access_role_ja}",
+    ]
+
+    if calendar.time_zone:
+        result.append(f"   - タイムゾーン: {calendar.time_zone}")
+
+    if calendar.description:
+        # 説明が長い場合は省略
+        desc_preview = (
+            calendar.description[:50] + "..."
+            if len(calendar.description) > 50
+            else calendar.description
+        )
+        result.append(f"   - 説明: {desc_preview}")
+
+    return "\n".join(result) + "\n"
+
+
 def format_event_summary(event: CalendarEvent) -> str:
     """イベントの概要を1行でフォーマット.
 
@@ -684,6 +1087,28 @@ def format_event_detail(event: CalendarEvent) -> str:
     lines.append(f"- ID: {event.id}")
 
     return "\n".join(lines)
+
+
+def format_event_with_calendar(event: CalendarEvent, calendar_name: str) -> str:
+    """イベントの概要をカレンダー名付きでフォーマット.
+
+    Args:
+        event: カレンダーイベント
+        calendar_name: カレンダー名
+
+    Returns:
+        str: フォーマットされたイベント概要
+    """
+    title = event.summary or "（タイトルなし）"
+    start_str = format_event_time(event.start)
+    end_str = format_event_time(event.end)
+    location_str = f" - {event.location}" if event.location else ""
+
+    return (
+        f"📅 {title} [{calendar_name}]\n"
+        f"   - 時間: {start_str} - {end_str}{location_str}\n"
+        f"   - ID: {event.id}\n"
+    )
 
 
 async def main() -> None:

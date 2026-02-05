@@ -23,7 +23,7 @@ from .exceptions import (
     NetworkError,
     TimeoutError,
 )
-from .models import CalendarEvent
+from .models import Calendar, CalendarEvent
 from .rate_limiter import RateLimiter
 
 logger = logging.getLogger(__name__)
@@ -336,6 +336,55 @@ class GoogleCalendarClient:
                 status_code=status_code,
                 details={"errors": errors},
             )
+
+    async def list_calendars(self) -> list[Calendar]:
+        """カレンダー一覧を取得.
+
+        ユーザーがアクセス可能なカレンダーの一覧を取得します。
+
+        Returns:
+            list[Calendar]: カレンダーのリスト
+
+        Raises:
+            GoogleAuthenticationError: 認証エラー
+            GooglePermissionError: 権限エラー
+            GoogleRateLimitError: レート制限エラー
+
+        Example:
+            >>> calendars = await client.list_calendars()
+            >>> for calendar in calendars:
+            ...     print(f"{calendar.summary} ({calendar.id})")
+        """
+        endpoint = "users/me/calendarList"
+
+        logger.info("Listing calendars")
+
+        response_data = await self._request("GET", endpoint)
+
+        # カレンダーリストの取得
+        items = response_data.get("items", [])
+
+        # Calendarモデルに変換
+        calendars: list[Calendar] = []
+        for item in items:
+            try:
+                calendar = Calendar(**item)
+                calendars.append(calendar)
+            except Exception as e:
+                # パースエラーの場合は警告を出力してスキップ
+                logger.warning(
+                    f"Failed to parse calendar {item.get('id', 'unknown')}: {e}",
+                    extra={
+                        "extra_fields": {
+                            "calendar_id": item.get("id"),
+                            "error": str(e),
+                        }
+                    },
+                )
+                continue
+
+        logger.info(f"Retrieved {len(calendars)} calendars")
+        return calendars
 
     async def list_events(
         self,

@@ -6,7 +6,9 @@
 
 import json
 import logging
+import os
 from datetime import datetime, timedelta
+from pathlib import Path
 from typing import Optional
 
 import httpx
@@ -20,6 +22,95 @@ from .exceptions import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+def _mask_token(token: str, visible_chars: int = 4) -> str:
+    """トークンをマスキングして安全に表示.
+
+    Args:
+        token: マスキング対象のトークン
+        visible_chars: 末尾に表示する文字数
+
+    Returns:
+        str: マスキングされたトークン（例: "****abcd"）
+    """
+    if not token or len(token) <= visible_chars:
+        return "****"
+    return f"****{token[-visible_chars:]}"
+
+
+def _update_env_file(env_file_path: Path, updates: dict[str, str]) -> None:
+    """環境変数ファイル(.env)を更新.
+
+    既存のファイルを読み込み、指定されたキーの値を更新します。
+    ファイルが存在しない場合は新規作成します。
+
+    Args:
+        env_file_path: .envファイルのパス
+        updates: 更新する環境変数の辞書（キー: 値）
+
+    Note:
+        - ファイルパーミッションは600（所有者のみ読み書き可能）に設定されます
+        - 書き込み失敗時はログを出力して続行（アプリは停止させない）
+    """
+    try:
+        # 既存の.envファイルを読み込み
+        if env_file_path.exists():
+            with open(env_file_path, "r", encoding="utf-8") as f:
+                lines = f.readlines()
+        else:
+            lines = []
+            logger.info(f".envファイルが存在しないため新規作成します: {env_file_path}")
+
+        # 更新する行のインデックスを記録
+        updated_keys = set()
+        new_lines = []
+
+        for line in lines:
+            stripped = line.strip()
+            # コメント行または空行はそのまま保持
+            if not stripped or stripped.startswith("#"):
+                new_lines.append(line)
+                continue
+
+            # KEY=VALUE形式をパース
+            if "=" in stripped:
+                key = stripped.split("=", 1)[0].strip()
+                if key in updates:
+                    # 更新対象のキーの場合は新しい値に置き換え
+                    new_lines.append(f"{key}={updates[key]}\n")
+                    updated_keys.add(key)
+                else:
+                    # それ以外はそのまま保持
+                    new_lines.append(line)
+            else:
+                new_lines.append(line)
+
+        # まだ追加されていないキーを末尾に追加
+        for key, value in updates.items():
+            if key not in updated_keys:
+                new_lines.append(f"{key}={value}\n")
+
+        # ファイルに書き込み
+        with open(env_file_path, "w", encoding="utf-8") as f:
+            f.writelines(new_lines)
+
+        # ファイルパーミッションを600に設定（所有者のみ読み書き可能）
+        os.chmod(env_file_path, 0o600)
+
+        logger.info(f".envファイルを更新しました: {env_file_path}")
+
+    except Exception as e:
+        # エラーが発生してもアプリは停止させない
+        logger.error(
+            f".envファイルの更新に失敗しました: {e}",
+            extra={
+                "extra_fields": {
+                    "env_file_path": str(env_file_path),
+                    "error_type": type(e).__name__,
+                }
+            },
+        )
 
 
 class GoogleCalendarAuth:
@@ -46,7 +137,7 @@ class GoogleCalendarAuth:
         self.config = config
         self._access_token: Optional[str] = config.google_access_token or None
         self._token_expiry: Optional[datetime] = None
-        self._client = httpx.AsyncClient(timeout=30.0)
+        self._client = httpx.AsyncClient(timeout=60.0)
 
     async def close(self) -> None:
         """HTTPクライアントを閉じる.
@@ -182,8 +273,29 @@ class GoogleCalendarAuth:
             # トークンを保存
             self._access_token = access_token
 
+            # 新しいリフレッシュトークンが返された場合は更新
+            new_refresh_token = token_data.get("refresh_token")
+
+            # .envファイルにトークンを永続化
+            env_updates = {
+                "GOOGLE_ACCESS_TOKEN": access_token,
+            }
+
+            if new_refresh_token:
+                # 新しいリフレッシュトークンが含まれている場合は更新
+                env_updates["GOOGLE_REFRESH_TOKEN"] = new_refresh_token
+                self.config.google_refresh_token = new_refresh_token
+                logger.info(
+                    f"New refresh token received: {_mask_token(new_refresh_token)}"
+                )
+
+            # .envファイルを更新
+            env_file_path = self.config.get_env_file_path()
+            _update_env_file(env_file_path, env_updates)
+
             logger.info(
-                f"Successfully refreshed access token. Expires in {expires_in} seconds."
+                f"Successfully refreshed access token: {_mask_token(access_token)}. "
+                f"Expires in {expires_in} seconds."
             )
 
             return access_token
@@ -191,7 +303,7 @@ class GoogleCalendarAuth:
         except httpx.TimeoutException as e:
             raise TimeoutError(
                 message="トークン更新リクエストがタイムアウトしました",
-                timeout_seconds=30.0,
+                timeout_seconds=60.0,
                 original_error=e,
             )
         except httpx.RequestError as e:

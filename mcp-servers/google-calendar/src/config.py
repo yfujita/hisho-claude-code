@@ -4,6 +4,9 @@
 アプリケーション全体で使用する設定を管理します。
 """
 
+import os
+from pathlib import Path
+
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -21,6 +24,7 @@ class GoogleCalendarConfig(BaseSettings):
     google_calendar_id: str = "primary"  # デフォルトはプライマリカレンダー
     google_calendar_timezone: str = "Asia/Tokyo"  # デフォルトタイムゾーン
     mcp_log_level: str = "INFO"
+    env_file_path: str = ".env"  # .envファイルのパス
 
     # Google Calendar APIの基本設定
     google_api_service_name: str = "calendar"
@@ -40,6 +44,18 @@ class GoogleCalendarConfig(BaseSettings):
         case_sensitive=False,
         extra="ignore",
     )
+
+    def get_env_file_path(self) -> Path:
+        """環境変数ファイルのパスを取得.
+
+        Returns:
+            Path: .envファイルの絶対パス
+        """
+        env_path = Path(self.env_file_path)
+        if not env_path.is_absolute():
+            # 相対パスの場合は、カレントディレクトリからの絶対パスに変換
+            env_path = Path.cwd() / env_path
+        return env_path
 
     def get_credentials_dict(self) -> dict[str, str]:
         """Google OAuth2認証情報を辞書形式で返す.

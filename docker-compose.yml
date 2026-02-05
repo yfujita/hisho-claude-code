@@ -52,6 +52,10 @@ services:
     stdin_open: true
     tty: true
     restart: unless-stopped
+    # 【追加】DNS設定を明示的に追加
+    dns:
+      - 8.8.8.8
+      - 8.8.4.4
     # リソース制限
     deploy:
       resources:

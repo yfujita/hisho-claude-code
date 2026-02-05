@@ -141,6 +141,48 @@ class CalendarEvent(BaseModel):
     )
 
 
+class Calendar(BaseModel):
+    """カレンダーを表すモデル.
+
+    Google Calendarのカレンダー情報を表現するモデル。
+    calendarListエンドポイントから取得されるカレンダー情報を保持します。
+
+    Attributes:
+        id: カレンダーID
+        summary: カレンダー名
+        description: カレンダーの説明
+        time_zone: タイムゾーン（例: "Asia/Tokyo"）
+        access_role: アクセス権限（owner、writer、readerなど）
+        primary: プライマリカレンダーかどうか
+        background_color: 背景色（16進数カラーコード）
+        foreground_color: 前景色（16進数カラーコード）
+    """
+
+    id: str = Field(..., description="カレンダーID")
+    summary: str = Field(..., description="カレンダー名")
+    description: Optional[str] = Field(None, description="カレンダーの説明")
+    time_zone: Optional[str] = Field(None, description="タイムゾーン", alias="timeZone")
+    access_role: str = Field(..., description="アクセス権限", alias="accessRole")
+    primary: bool = Field(False, description="プライマリカレンダーかどうか")
+    background_color: Optional[str] = Field(None, description="背景色", alias="backgroundColor")
+    foreground_color: Optional[str] = Field(None, description="前景色", alias="foregroundColor")
+
+    model_config = ConfigDict(
+        populate_by_name=True,
+        json_schema_extra={
+            "examples": [
+                {
+                    "id": "primary",
+                    "summary": "メインカレンダー",
+                    "timeZone": "Asia/Tokyo",
+                    "accessRole": "owner",
+                    "primary": True,
+                }
+            ]
+        },
+    )
+
+
 class GoogleCalendarError(BaseModel):
     """Google Calendar APIのエラーレスポンス.
 

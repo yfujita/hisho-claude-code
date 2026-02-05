@@ -151,10 +151,31 @@ MCPツール `create_memo` を呼び出して、新しいメモを作成しま�
 
 ### MCPツール: Google Calendar連携
 
+#### list_calendars
+ユーザーがアクセス可能なカレンダー一覧を取得します。
+
+**パラメータ:**
+なし
+
+**使用例:**
+```
+MCPツール `list_calendars` を呼び出して、利用可能なカレンダーを確認します。
+```
+
+**レスポンス処理:**
+- カレンダーID、名前、説明を表示
+- プライマリカレンダーを強調表示
+- アクセス権限（owner/writer/reader）を表示
+
+**注意:**
+- カレンダーIDは他のツールで使用できます
+- プライマリカレンダーは `calendar_id` を省略した場合に使用されます
+
 #### get_events
 Google Calendarから予定一覧を取得します。
 
 **パラメータ:**
+- `calendar_id` (string, optional): カレンダーID。省略時はデフォルトカレンダー（primary）を使用
 - `time_min` (string, optional): 取得開始日時（ISO 8601形式）。省略時は現在時刻
 - `time_max` (string, optional): 取得終了日時（ISO 8601形式）。省略時はtime_minから7日後
 - `max_results` (integer, optional): 最大取得件数（デフォルト: 10）
@@ -162,6 +183,8 @@ Google Calendarから予定一覧を取得します。
 **使用例:**
 ```
 MCPツール `get_events` を呼び出して、今週の予定を取得します。
+
+例: get_events(calendar_id="example@gmail.com", max_results=20)
 ```
 
 **レスポンス処理:**
@@ -173,6 +196,7 @@ MCPツール `get_events` を呼び出して、今週の予定を取得します
 
 **パラメータ:**
 - `event_id` (string, required): イベントID
+- `calendar_id` (string, optional): カレンダーID。省略時はデフォルトカレンダー（primary）を使用
 
 **使用例:**
 ```
@@ -186,6 +210,7 @@ Google Calendarに新しい予定を作成します。
 - `summary` (string, required): 予定のタイトル
 - `start_time` (string, required): 開始日時（ISO 8601形式）
 - `end_time` (string, required): 終了日時（ISO 8601形式）
+- `calendar_id` (string, optional): カレンダーID。省略時はデフォルトカレンダー（primary）を使用
 - `location` (string, optional): 場所
 - `description` (string, optional): 詳細説明
 
@@ -197,7 +222,8 @@ MCPツール `create_event` を呼び出して、予定を作成します。
   summary="チーム定例",
   start_time="2026-02-05T10:00:00+09:00",
   end_time="2026-02-05T11:00:00+09:00",
-  location="オンライン"
+  location="オンライン",
+  calendar_id="team@example.com"
 )
 ```
 
@@ -206,6 +232,7 @@ MCPツール `create_event` を呼び出して、予定を作成します。
 
 **パラメータ:**
 - `event_id` (string, required): 更新するイベントのID
+- `calendar_id` (string, optional): カレンダーID。省略時はデフォルトカレンダー（primary）を使用
 - `summary` (string, optional): 新しいタイトル
 - `start_time` (string, optional): 新しい開始日時
 - `end_time` (string, optional): 新しい終了日時
@@ -216,6 +243,34 @@ MCPツール `create_event` を呼び出して、予定を作成します。
 ```
 MCPツール `update_event` を呼び出して、予定を変更します。
 ```
+
+#### get_events_from_multiple_calendars
+複数のカレンダーから予定を一括取得します。
+
+**パラメータ:**
+- `calendar_ids` (array of string, optional): カレンダーIDのリスト。省略時はすべてのアクセス可能なカレンダーから取得
+- `time_min` (string, optional): 取得開始日時（ISO 8601形式）。省略時は現在時刻
+- `time_max` (string, optional): 取得終了日時（ISO 8601形式）。省略時はtime_minから7日後
+- `max_results_per_calendar` (integer, optional): 各カレンダーからの最大取得件数（デフォルト: 10）
+
+**使用例:**
+```
+MCPツール `get_events_from_multiple_calendars` を呼び出して、複数のカレンダーから予定を取得します。
+
+例: get_events_from_multiple_calendars(
+  calendar_ids=["work@example.com", "personal@gmail.com"],
+  max_results_per_calendar=20
+)
+```
+
+**レスポンス処理:**
+- カレンダーごとに予定を分類して表示
+- 各予定に対してカレンダー名、時間、タイトル、場所、IDを表示
+- 時系列順にソートして表示
+
+**注意:**
+- `calendar_ids` を省略すると、`list_calendars` で取得できるすべてのカレンダーから予定を取得します
+- 複数のカレンダーを横断して予定を確認したい場合に便利です
 
 ## コーディング規約（エージェント自身がコードを書く場合）
 
