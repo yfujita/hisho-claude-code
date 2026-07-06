@@ -358,6 +358,51 @@ class NotionClient:
 
         return all_results
 
+    async def retrieve_database(
+        self, database_id: Optional[str] = None
+    ) -> dict[str, Any]:
+        """データベースのメタデータ（スキーマ）を取得.
+
+        Args:
+            database_id: データベースID（Noneの場合は設定から取得）
+
+        Returns:
+            dict[str, Any]: データベースオブジェクト（propertiesを含む）
+        """
+        if database_id is None:
+            database_id = self.config.notion_task_database_id
+
+        endpoint = f"databases/{database_id}"
+        return await self._request("GET", endpoint)
+
+    async def _get_status_option_names(
+        self, status_prop_name: str, database_id: Optional[str] = None
+    ) -> set[str]:
+        """指定したステータスプロパティに実在する選択肢名の集合を取得.
+
+        Notion APIは、実在しない選択肢名をフィルタに指定すると400エラーを
+        返すため、フィルタ構築前に有効な選択肢を確認する目的で使用します。
+
+        Args:
+            status_prop_name: ステータスプロパティ名
+            database_id: データベースID（Noneの場合は設定から取得）
+
+        Returns:
+            set[str]: 実在する選択肢名の集合。取得に失敗した場合は空集合。
+        """
+        try:
+            database = await self.retrieve_database(database_id)
+        except NotionAPIError as exc:
+            logger.warning(
+                "Failed to retrieve database schema for status options; "
+                f"proceeding without status filter. error={exc}"
+            )
+            return set()
+
+        status_prop = database.get("properties", {}).get(status_prop_name, {})
+        options = status_prop.get("status", {}).get("options", [])
+        return {option["name"] for option in options if option.get("name")}
+
     def _parse_task(self, page: NotionPage) -> Task:
         """NotionページをTaskモデルに変換.
 
@@ -462,20 +507,25 @@ class NotionClient:
         # フィルタ条件の構築（設定からプロパティ名を取得）
         filter_conditions = None
         status_prop_name = self.config.task_prop_status
+        # 除外対象のステータス（完了・キャンセル）
+        excluded_statuses = [TaskStatus.COMPLETED.value, TaskStatus.CANCELLED.value]
         if not include_completed and status_prop_name:
-            # 未完了タスクのみ取得（CompletedとCancelledを除外）
-            filter_conditions = {
-                "and": [
-                    {
-                        "property": status_prop_name,
-                        "status": {"does_not_equal": TaskStatus.COMPLETED.value},
-                    },
-                    {
-                        "property": status_prop_name,
-                        "status": {"does_not_equal": TaskStatus.CANCELLED.value},
-                    },
-                ]
-            }
+            # 未完了タスクのみ取得（完了・キャンセルを除外）。
+            # Notion側に実在しない選択肢をフィルタに指定すると400エラーに
+            # なるため、実在する選択肢のみを除外条件に含める。
+            valid_options = await self._get_status_option_names(
+                status_prop_name, database_id
+            )
+            conditions = [
+                {
+                    "property": status_prop_name,
+                    "status": {"does_not_equal": status_value},
+                }
+                for status_value in excluded_statuses
+                if status_value in valid_options
+            ]
+            if conditions:
+                filter_conditions = {"and": conditions}
 
         # ソート条件（設定されているプロパティのみ使用）
         sorts: list[dict[str, Any]] = []
@@ -492,7 +542,16 @@ class NotionClient:
             sorts=sorts,
         )
 
-        return self._pages_to_tasks(pages)
+        tasks = self._pages_to_tasks(pages)
+
+        # 安全策: スキーマ取得失敗などでサーバー側フィルタを適用できなかった
+        # 場合でも、完了・キャンセルのタスクが混入しないようクライアント側でも除外する。
+        if not include_completed:
+            tasks = [
+                task for task in tasks if task.status.value not in excluded_statuses
+            ]
+
+        return tasks
 
     async def search_tasks(
         self,

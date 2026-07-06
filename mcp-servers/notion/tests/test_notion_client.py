@@ -3,6 +3,7 @@
 NotionClientのAPIクライアント機能をモックを使用してテストします。
 """
 
+import json
 from datetime import datetime
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -79,6 +80,36 @@ def mock_database_query_response(mock_notion_page: dict) -> dict:
         "results": [mock_notion_page],
         "next_cursor": None,
         "has_more": False,
+    }
+
+
+@pytest.fixture
+def mock_database_schema() -> dict:
+    """モックのデータベーススキーマ（retrieve_database相当）を返す.
+
+    実際のNotionデータベースを模し、ステータスの選択肢に「キャンセル」を
+    含めない構成としている（get_tasksが実在する選択肢のみを除外条件に
+    含めることを検証するため）。
+
+    Returns:
+        dict: Notion APIのデータベースオブジェクト
+    """
+    return {
+        "object": "database",
+        "id": "test-database-id",
+        "properties": {
+            "Status": {
+                "id": "status",
+                "type": "status",
+                "status": {
+                    "options": [
+                        {"name": "未着手", "color": "default"},
+                        {"name": "対応中", "color": "blue"},
+                        {"name": "完了 🙌", "color": "green"},
+                    ]
+                },
+            }
+        },
     }
 
 
@@ -275,28 +306,90 @@ class TestNotionClient:
                 assert tasks[0].title == "テストタスク"
 
     @pytest.mark.asyncio
-    async def test_get_tasks_exclude_completed(self, mock_config: NotionConfig) -> None:
-        """完了済みタスクが除外されることを確認."""
-        with patch("httpx.AsyncClient.request") as mock_request:
-            # query_databaseの呼び出し時の引数を検証
+    async def test_get_tasks_exclude_completed(
+        self, mock_config: NotionConfig, mock_database_schema: dict
+    ) -> None:
+        """完了済みタスクが除外され、実在する選択肢のみでフィルタが構築されることを確認."""
+        empty_query_response = {
+            "object": "list",
+            "results": [],
+            "next_cursor": None,
+            "has_more": False,
+        }
+
+        def request_side_effect(*args: object, **kwargs: object) -> MagicMock:
+            # メソッド/URLに応じてスキーマ取得とクエリを出し分ける
+            method = kwargs.get("method")
+            url = kwargs.get("url", "")
             mock_response = MagicMock()
             mock_response.status_code = 200
-            mock_response.json.return_value = {
-                "object": "list",
-                "results": [],
-                "next_cursor": None,
-                "has_more": False,
-            }
-            mock_request.return_value = mock_response
+            if method == "GET" and not str(url).endswith("/query"):
+                mock_response.json.return_value = mock_database_schema
+            else:
+                mock_response.json.return_value = empty_query_response
+            return mock_response
 
+        with patch("httpx.AsyncClient.request", side_effect=request_side_effect) as mock_request:
             async with NotionClient(mock_config) as client:
                 await client.get_tasks(include_completed=False)
 
-                # フィルタ条件が正しく設定されているか確認
-                call_args = mock_request.call_args
-                request_body = call_args.kwargs.get("json") or call_args.args[2]
+                # 最後の呼び出し（クエリ）のフィルタ条件を検証
+                query_call = mock_request.call_args
+                request_body = query_call.kwargs.get("json") or query_call.args[2]
                 assert "filter" in request_body
                 assert "and" in request_body["filter"]
+
+                # 実在する「完了 🙌」のみが除外条件に含まれ、
+                # 実在しない「キャンセル」は含まれないことを確認
+                excluded_values = [
+                    cond["status"]["does_not_equal"]
+                    for cond in request_body["filter"]["and"]
+                ]
+                assert "完了 🙌" in excluded_values
+                assert "キャンセル" not in excluded_values
+
+    @pytest.mark.asyncio
+    async def test_get_tasks_schema_fetch_failure_still_excludes_completed(
+        self, mock_config: NotionConfig, mock_notion_page: dict
+    ) -> None:
+        """スキーマ取得が失敗しても、完了タスクがクライアント側で除外されることを確認."""
+        completed_page = json.loads(json.dumps(mock_notion_page))
+        completed_page["id"] = "completed-page"
+        completed_page["properties"]["Status"]["status"]["name"] = "完了 🙌"
+
+        query_response = {
+            "object": "list",
+            "results": [mock_notion_page, completed_page],
+            "next_cursor": None,
+            "has_more": False,
+        }
+
+        def request_side_effect(*args: object, **kwargs: object) -> MagicMock:
+            method = kwargs.get("method")
+            url = kwargs.get("url", "")
+            mock_response = MagicMock()
+            if method == "GET" and not str(url).endswith("/query"):
+                # スキーマ取得は失敗させる（404）
+                mock_response.status_code = 404
+                mock_response.json.return_value = {
+                    "object": "error",
+                    "status": 404,
+                    "message": "Not found",
+                }
+            else:
+                mock_response.status_code = 200
+                mock_response.json.return_value = query_response
+            return mock_response
+
+        with patch("httpx.AsyncClient.request", side_effect=request_side_effect):
+            async with NotionClient(mock_config) as client:
+                tasks = await client.get_tasks(include_completed=False)
+
+                # スキーマ取得失敗でサーバー側フィルタが効かなくても、
+                # 完了タスクはクライアント側で除外される
+                statuses = [task.status.value for task in tasks]
+                assert "完了 🙌" not in statuses
+                assert "対応中" in statuses
 
     @pytest.mark.asyncio
     async def test_update_page_success(self, mock_config: NotionConfig) -> None:
